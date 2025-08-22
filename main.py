@@ -126,15 +126,19 @@ def create_main_menu(user_id=None):
     
     texts = button_texts[user_lang]
     
+    # Asosiy tugmalar (barcha foydalanuvchilar uchun)
     markup.add(
         KeyboardButton(texts['categories']),
         KeyboardButton(texts['search']),
         KeyboardButton(texts['cart']),
         KeyboardButton(texts['language']),
         KeyboardButton(texts['orders']),
-        KeyboardButton(texts['contact']),
-        KeyboardButton(texts['admin'])
+        KeyboardButton(texts['contact'])
     )
+    
+    # Admin panel tugmasi faqat admin uchun
+    if user_id == ADMIN_ID:
+        markup.add(KeyboardButton(texts['admin']))
     return markup
 
 def create_admin_main_menu():
