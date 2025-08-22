@@ -49,11 +49,39 @@ admin_reply_data = {}
 
 # Mahsulotlarni data.json dan olish
 def get_products():
-    """data.json dan mahsulotlarni olish"""
+    """data.json dan mahsulotlarni olish (ichki kategoriyalar bilan)"""
     products = {}
     for category_key, category_data in data['categories'].items():
-        products[category_key] = category_data['products']
+        if 'subcategories' in category_data:
+            # Agar ichki kategoriyalar mavjud bo'lsa
+            for subcategory_key, subcategory_data in category_data['subcategories'].items():
+                full_key = f"{category_key}_{subcategory_key}"
+                products[full_key] = subcategory_data['products']
+        else:
+            # Agar to'g'ridan-to'g'ri mahsulotlar bo'lsa
+            products[category_key] = category_data.get('products', [])
     return products
+
+# Ichki kategoriyalarni olish
+def get_subcategories(category_key):
+    """Berilgan kategoriya uchun ichki kategoriyalarni olish"""
+    if category_key in data['categories']:
+        category_data = data['categories'][category_key]
+        if 'subcategories' in category_data:
+            return category_data['subcategories']
+    return {}
+
+# Kategoriya ma'lumotlarini olish
+def get_category_info(category_key, subcategory_key=None):
+    """Kategoriya yoki ichki kategoriya ma'lumotlarini olish"""
+    if category_key in data['categories']:
+        category_data = data['categories'][category_key]
+        if subcategory_key and 'subcategories' in category_data:
+            if subcategory_key in category_data['subcategories']:
+                return category_data['subcategories'][subcategory_key]
+        else:
+            return category_data
+    return None
 
 # Mahsulotlarni yangilash
 def update_products():
@@ -192,9 +220,19 @@ def create_category_menu():
     for category_key, category_data in data['categories'].items():
         emoji = category_data.get('emoji', '📦')
         name = category_data['name']
-        product_count = len(category_data['products'])
         
-        # Barcha kategoriyalarni ko'rsatish (mahsulotlari bo'lsa ham, bo'lmasa ham)
+        # Mahsulotlar sonini hisoblash
+        if 'subcategories' in category_data:
+            # Ichki kategoriyalar mavjud
+            total_products = 0
+            for subcategory_data in category_data['subcategories'].values():
+                total_products += len(subcategory_data.get('products', []))
+            product_count = total_products
+        else:
+            # To'g'ridan-to'g'ri mahsulotlar
+            product_count = len(category_data.get('products', []))
+        
+        # Kategoriyalarni ko'rsatish
         markup.add(InlineKeyboardButton(
             f"{emoji} {name} ({product_count} ta)",
             callback_data=f"category_{category_key}"
@@ -203,6 +241,27 @@ def create_category_menu():
     # Agar hech qanday kategoriya yo'q bo'lsa
     if not markup.keyboard:
         markup.add(InlineKeyboardButton("❌ Kategoriyalar yo'q", callback_data="no_categories"))
+    
+    return markup
+
+def create_subcategory_menu(category_key):
+    """Ichki kategoriyalar menyusini yaratish"""
+    markup = InlineKeyboardMarkup(row_width=1)
+    
+    subcategories = get_subcategories(category_key)
+    
+    for subcategory_key, subcategory_data in subcategories.items():
+        emoji = subcategory_data.get('emoji', '📦')
+        name = subcategory_data['name']
+        product_count = len(subcategory_data.get('products', []))
+        
+        markup.add(InlineKeyboardButton(
+            f"{emoji} {name} ({product_count} ta)",
+            callback_data=f"subcategory_{category_key}_{subcategory_key}"
+        ))
+    
+    # Orqaga qaytish tugmasi
+    markup.add(InlineKeyboardButton("🔙 Orqaga", callback_data="back_to_categories"))
     
     return markup
 
@@ -550,10 +609,20 @@ def show_cart(message):
     
     for item in cart:
         quantity = item.get('quantity', 1)
-        price_per_item = item['price']
+        price_per_item = item.get('unit_price', item['price'])
         total_price = item.get('total_price', price_per_item * quantity)
         
         cart_text += f"📦 {item['name']}\n"
+        
+        # Parametr ma'lumotini ko'rsatish
+        if 'selected_param' in item:
+            param = item['selected_param']
+            param_price = param.get('price', 0)
+            if param_price > 0:
+                cart_text += f"⚙️ {param['name']}: {param['value']} (+{param_price:,} so'm)\n"
+            else:
+                cart_text += f"⚙️ {param['name']}: {param['value']}\n"
+        
         cart_text += f"{msg['quantity'].format(quantity)}\n"
         cart_text += f"{msg['price'].format(price_per_item)}\n"
         cart_text += f"{msg['total'].format(total_price)}\n"
@@ -694,13 +763,21 @@ def admin_categories_button(message):
         bot.reply_to(message, "❌ Siz admin emassiz!")
         return
     
+    # Ichki kategoriyalar sonini hisoblash
+    total_subcategories = 0
+    for category_data in data['categories'].values():
+        if 'subcategories' in category_data:
+            total_subcategories += len(category_data['subcategories'])
+    
     categories_text = f"""
 🏷️ **Kategoriyalar Boshqaruvi**
 
-Jami kategoriyalar: {len(data['categories'])} ta
+📂 Asosiy kategoriyalar: {len(data['categories'])} ta
+📁 Ichki kategoriyalar: {total_subcategories} ta
 
 Quyidagi amallardan birini tanlang:
 ➕ Kategoriya qo'shish - yangi kategoriya qo'shish
+📁 Ichki kategoriya qo'shish - ichki kategoriya qo'shish
 ✏️ Kategoriya tahrirlash - mavjud kategoriyani o'zgartirish
 🗑️ Kategoriya o'chirish - kategoriyani o'chirish
     """
@@ -708,6 +785,7 @@ Quyidagi amallardan birini tanlang:
     markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     markup.add(
         KeyboardButton("➕ Kategoriya qo'shish"),
+        KeyboardButton("📁 Ichki kategoriya qo'shish"),
         KeyboardButton("✏️ Kategoriya tahrirlash"),
         KeyboardButton("🗑️ Kategoriya o'chirish"),
         KeyboardButton("🔙 Orqaga")
@@ -1807,6 +1885,35 @@ def admin_add_category_button(message):
                  "Kategoriya nomini yozing (masalan: Elektronika):",
                  reply_markup=markup)
 
+@bot.message_handler(func=lambda message: message.text == "📁 Ichki kategoriya qo'shish")
+def admin_add_subcategory_button(message):
+    """Ichki kategoriya qo'shish tugmasini bosganda"""
+    if message.from_user.id != ADMIN_ID:
+        bot.reply_to(message, "❌ Siz admin emassiz!")
+        return
+    
+    if not data['categories']:
+        bot.reply_to(message, "❌ Avval asosiy kategoriya qo'shishingiz kerak!", reply_markup=create_admin_menu())
+        return
+    
+    # Kategoriyalar ro'yxatini ko'rsatish
+    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
+    
+    for category_key, category_data in data['categories'].items():
+        emoji = category_data.get('emoji', '📦')
+        name = category_data['name']
+        markup.add(KeyboardButton(f"{emoji} {name}"))
+    
+    markup.add(KeyboardButton("🔙 Orqaga"))
+    
+    bot.reply_to(message, 
+                 "📁 Yangi ichki kategoriya qo'shish\n\n"
+                 "Qaysi kategoriyaga ichki kategoriya qo'shmoqchisiz?\n"
+                 "Kategoriya nomini tanlang:",
+                 reply_markup=markup)
+    
+    user_states[message.from_user.id] = "admin_add_subcategory_category"
+
 # Kategoriya o'chirish tugmasi
 @bot.message_handler(func=lambda message: message.text == "🗑️ Kategoriya o'chirish")
 def admin_delete_category_button(message):
@@ -2420,7 +2527,17 @@ def handle_quantity_input(message):
     temp_product = contact_data[user_id]['temp_product']
     product = temp_product['product'].copy()
     product['quantity'] = quantity
-    product['total_price'] = product['price'] * quantity
+    
+    # Parametr narxini hisoblash
+    param_price = temp_product.get('param_price', 0)
+    total_unit_price = product['price'] + param_price
+    product['total_price'] = total_unit_price * quantity
+    product['unit_price'] = total_unit_price
+    product['param_price'] = param_price
+    
+    # Tanlangan parametrni saqlash
+    if 'selected_param' in temp_product:
+        product['selected_param'] = temp_product['selected_param']
     
     user_data[user_id]['cart'].append(product)
     
@@ -2515,35 +2632,88 @@ def handle_category_selection(call):
     """Kategoriya tanlash"""
     category = call.data.split('_')[1]
     
+    # Kategoriya ma'lumotlarini olish
+    category_info = get_category_info(category)
+    
+    if not category_info:
+        bot.answer_callback_query(call.id, "❌ Kategoriya topilmadi!")
+        return
+    
+    # Agar ichki kategoriyalar mavjud bo'lsa
+    if 'subcategories' in category_info:
+        # Ichki kategoriyalar menyusini ko'rsatish
+        bot.edit_message_text(
+            f"📂 {category_info['name']} kategoriyasi\n\n"
+            f"Ichki kategoriyani tanlang:",
+            call.message.chat.id,
+            call.message.message_id,
+            reply_markup=create_subcategory_menu(category)
+        )
+    else:
+        # To'g'ridan-to'g'ri mahsulotlar mavjud
+        # Mahsulotlarni yangilash
+        update_products()
+        
+        if category in products and products[category]:
+            category_products = products[category]
+            markup = InlineKeyboardMarkup(row_width=1)
+            
+            for product in category_products:
+                available_qty = product.get('quantity', 0)
+                markup.add(InlineKeyboardButton(
+                    f"📦 {product['name']} - {product['price']:,} so'm ({available_qty} ta)",
+                    callback_data=f"product_{category}_{category_products.index(product)}"
+                ))
+            
+            markup.add(InlineKeyboardButton("🔙 Orqaga", callback_data="back_to_categories"))
+            
+            bot.edit_message_text(
+                f"{category_info['name']} mahsulotlari:",
+                call.message.chat.id,
+                call.message.message_id,
+                reply_markup=markup
+            )
+        else:
+            # Agar kategoriyada mahsulot yo'q bo'lsa
+            markup = InlineKeyboardMarkup()
+            markup.add(InlineKeyboardButton("🔙 Orqaga", callback_data="back_to_categories"))
+            
+            bot.edit_message_text(
+                "❌ Bu kategoriyada mahsulotlar yo'q!",
+                call.message.chat.id,
+                call.message.message_id,
+                reply_markup=markup
+            )
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('subcategory_'))
+def handle_subcategory_selection(call):
+    """Ichki kategoriya tanlash"""
+    parts = call.data.split('_')
+    category = parts[1]
+    subcategory = parts[2]
+    
     # Mahsulotlarni yangilash
     update_products()
     
-    if category in products and products[category]:
-        category_products = products[category]
+    # Ichki kategoriya mahsulotlarini olish
+    full_key = f"{category}_{subcategory}"
+    
+    if full_key in products and products[full_key]:
+        category_products = products[full_key]
         markup = InlineKeyboardMarkup(row_width=1)
         
         for product in category_products:
             available_qty = product.get('quantity', 0)
             markup.add(InlineKeyboardButton(
                 f"📦 {product['name']} - {product['price']:,} so'm ({available_qty} ta)",
-                callback_data=f"product_{category}_{category_products.index(product)}"
+                callback_data=f"product_{full_key}_{category_products.index(product)}"
             ))
         
-        markup.add(InlineKeyboardButton("🔙 Orqaga", callback_data="back_to_categories"))
+        markup.add(InlineKeyboardButton("🔙 Orqaga", callback_data=f"category_{category}"))
         
-        # Category display names
-        category_names = {
-            "telefonlar": "Telefonlar",
-            "noutbuklar": "Noutbuklar", 
-            "kiyimlar": "Kiyimlar",
-            "konditsionerlar": "Konditsionerlar",
-            "monitorlar": "Monitorlar",
-            "klaviatura_va_mishkalar": "Klaviatura va Mishkalar",
-            "kulerlar": "Kulerlar",
-            "kir_yuvish_mashinalari": "Kir yuvish mashinalari"
-        }
-        
-        display_name = category_names.get(category, category.capitalize())
+        # Ichki kategoriya ma'lumotlarini olish
+        subcategory_info = get_category_info(category, subcategory)
+        display_name = subcategory_info['name'] if subcategory_info else subcategory.capitalize()
         
         bot.edit_message_text(
             f"{display_name} mahsulotlari:",
@@ -2552,12 +2722,12 @@ def handle_category_selection(call):
             reply_markup=markup
         )
     else:
-        # Agar kategoriyada mahsulot yo'q bo'lsa
+        # Agar ichki kategoriyada mahsulot yo'q bo'lsa
         markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("🔙 Orqaga", callback_data="back_to_categories"))
+        markup.add(InlineKeyboardButton("🔙 Orqaga", callback_data=f"category_{category}"))
         
         bot.edit_message_text(
-            "❌ Bu kategoriyada mahsulotlar yo'q!",
+            "❌ Bu ichki kategoriyada mahsulotlar yo'q!",
             call.message.chat.id,
             call.message.message_id,
             reply_markup=markup
@@ -2567,24 +2737,60 @@ def handle_category_selection(call):
 def handle_product_selection(call):
     """Mahsulot tanlash"""
     parts = call.data.split('_')
-    category = parts[1]
-    product_index = int(parts[2])
+    
+    # Ichki kategoriya yoki oddiy kategoriya ekanligini aniqlash
+    if len(parts) == 3:
+        # Oddiy kategoriya: product_category_index
+        category = parts[1]
+        product_index = int(parts[2])
+    elif len(parts) == 4:
+        # Ichki kategoriya: product_category_subcategory_index
+        category = f"{parts[1]}_{parts[2]}"
+        product_index = int(parts[3])
+    else:
+        # Xatolik
+        bot.answer_callback_query(call.id, "❌ Xatolik: Noto'g'ri format")
+        return
     
     if category in products and product_index < len(products[category]):
         product = products[category][product_index]
         
+        # Mahsulot ma'lumotlarini ko'rsatish
+        product_text = f"""
+📦 **{product['name']}**
+💰 **Narxi:** {product['price']:,} so'm
+📦 **Mavjud:** {product.get('quantity', 0)} ta
+📝 **Tavsif:** {product['description']}
+        """
+        
+        # Xarakteristikalar ko'rsatish
+        if 'characteristics' in product and product['characteristics']:
+            product_text += "\n🔧 **Xarakteristikalar:**\n"
+            for char in product['characteristics']:
+                product_text += f"• {char['name']}: {char['value']}\n"
+        
+        # Parametrlar tugmalarini yaratish
         markup = InlineKeyboardMarkup(row_width=2)
+        
+        # Agar parametrlar mavjud bo'lsa, ularni ko'rsatish
+        if 'parameters' in product and product['parameters']:
+            product_text += "\n⚙️ **Parametrlar:**\n"
+            for i, param in enumerate(product['parameters']):
+                param_price = param.get('price', 0)
+                if param_price > 0:
+                    param_text = f"{param['name']}: {param['value']} (+{param_price:,} so'm)"
+                else:
+                    param_text = f"{param['name']}: {param['value']}"
+                markup.add(InlineKeyboardButton(
+                    param_text, 
+                    callback_data=f"select_param_{category}_{product_index}_{i}"
+                ))
+        
+        # Asosiy tugmalar
         markup.add(
             InlineKeyboardButton("🛒 Savatga qo'shish", callback_data=f"add_to_cart_{category}_{product_index}"),
             InlineKeyboardButton("🔙 Orqaga", callback_data=f"category_{category}")
         )
-        
-        product_text = f"""
-📦 {product['name']}
-💰 Narxi: {product['price']:,} so'm
-📦 Mavjud: {product.get('quantity', 0)} ta
-📝 {product['description']}
-        """
         
         bot.edit_message_text(
             product_text,
@@ -2592,13 +2798,116 @@ def handle_product_selection(call):
             call.message.message_id,
             reply_markup=markup
         )
+    else:
+        # Xatolik xabari
+        error_text = f"""
+❌ **Xatolik!**
+
+Kategoriya: {category}
+Indeks: {product_index}
+Mavjud kategoriyalar: {list(products.keys())}
+        """
+        
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🔙 Orqaga", callback_data="back_to_categories"))
+        
+        bot.edit_message_text(
+            error_text,
+            call.message.chat.id,
+            call.message.message_id,
+            reply_markup=markup
+        )
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('select_param_'))
+def handle_param_selection(call):
+    """Parametr tanlash"""
+    parts = call.data.split('_')
+    
+    # Ichki kategoriya yoki oddiy kategoriya ekanligini aniqlash
+    if len(parts) == 5:
+        # Oddiy kategoriya: select_param_category_index_param_index
+        category = parts[2]
+        product_index = int(parts[3])
+        param_index = int(parts[4])
+    elif len(parts) == 6:
+        # Ichki kategoriya: select_param_category_subcategory_index_param_index
+        category = f"{parts[2]}_{parts[3]}"
+        product_index = int(parts[4])
+        param_index = int(parts[5])
+    else:
+        # Xatolik
+        bot.answer_callback_query(call.id, "❌ Xatolik: Noto'g'ri format")
+        return
+    
+    if category in products and product_index < len(products[category]):
+        product = products[category][product_index]
+        
+        if 'parameters' in product and param_index < len(product['parameters']):
+            selected_param = product['parameters'][param_index]
+            
+            # Tanlangan parametrni saqlash
+            user_id = call.from_user.id
+            if user_id not in contact_data:
+                contact_data[user_id] = {}
+            contact_data[user_id]['selected_param'] = selected_param
+            contact_data[user_id]['temp_product'] = {
+                'product': product,
+                'category': category,
+                'product_index': product_index,
+                'selected_param': selected_param,
+                'param_price': selected_param.get('price', 0)
+            }
+            
+            # Miqdorni so'rash
+            user_states[user_id] = "waiting_quantity"
+            
+            markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
+            markup.add(KeyboardButton("🔙 Orqaga"))
+            
+            # Parametr narxini hisoblash
+            param_price = selected_param.get('price', 0)
+            total_price = product['price'] + param_price
+            
+            bot.edit_message_text(
+                f"📦 **{product['name']}**\n"
+                f"⚙️ **Tanlangan parametr:** {selected_param['name']}: {selected_param['value']}\n"
+                f"💰 **Asosiy narx:** {product['price']:,} so'm\n"
+                f"💰 **Parametr narxi:** {param_price:,} so'm\n"
+                f"💰 **Jami narx:** {total_price:,} so'm\n"
+                f"📦 **Mavjud:** {product.get('quantity', 0)} ta\n\n"
+                f"🔢 Qancha miqdorda qo'shmoqchisiz? (Maksimal: {product.get('quantity', 0)} ta)",
+                call.message.chat.id,
+                call.message.message_id
+            )
+            
+            bot.send_message(
+                call.message.chat.id,
+                "🔢 Miqdorni yozing:",
+                reply_markup=markup
+            )
+        else:
+            bot.answer_callback_query(call.id, "❌ Parametr topilmadi!")
+    else:
+        bot.answer_callback_query(call.id, "❌ Mahsulot topilmadi!")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('add_to_cart_'))
 def handle_add_to_cart(call):
     """Savatga qo'shish - miqdorni so'rash"""
     parts = call.data.split('_')
-    category = parts[3]
-    product_index = int(parts[4])
+    
+    # Ichki kategoriya yoki oddiy kategoriya ekanligini aniqlash
+    if len(parts) == 5:
+        # Oddiy kategoriya: add_to_cart_category_index
+        category = parts[3]
+        product_index = int(parts[4])
+    elif len(parts) == 6:
+        # Ichki kategoriya: add_to_cart_category_subcategory_index
+        category = f"{parts[3]}_{parts[4]}"
+        product_index = int(parts[5])
+    else:
+        # Xatolik
+        bot.answer_callback_query(call.id, "❌ Xatolik: Noto'g'ri format")
+        return
     
     user_id = call.from_user.id
     if user_id not in user_data:
@@ -2614,7 +2923,9 @@ def handle_add_to_cart(call):
         contact_data[user_id]['temp_product'] = {
             'product': product,
             'category': category,
-            'product_index': product_index
+            'product_index': product_index,
+            'selected_param': None,
+            'param_price': 0
         }
         
         markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
@@ -4619,8 +4930,20 @@ def handle_admin_add_product_quantity(message):
     new_product = contact_data[message.from_user.id]['new_product']
     category_key = new_product['category']
     
-    # Mahsulot ID yaratish
-    product_id = f"{category_key}_{len(data['categories'][category_key]['products']) + 1}"
+    # Ichki kategoriya yoki oddiy kategoriya ekanligini aniqlash
+    if '_' in category_key:
+        # Ichki kategoriya: category_subcategory
+        main_category, subcategory = category_key.split('_', 1)
+        if 'products' not in data['categories'][main_category]['subcategories'][subcategory]:
+            data['categories'][main_category]['subcategories'][subcategory]['products'] = []
+        product_id = f"{subcategory}_{len(data['categories'][main_category]['subcategories'][subcategory]['products']) + 1}"
+        category_name = data['categories'][main_category]['subcategories'][subcategory]['name']
+    else:
+        # Oddiy kategoriya
+        if 'products' not in data['categories'][category_key]:
+            data['categories'][category_key]['products'] = []
+        product_id = f"{category_key}_{len(data['categories'][category_key]['products']) + 1}"
+        category_name = data['categories'][category_key]['name']
     
     product_data = {
         'id': product_id,
@@ -4628,14 +4951,17 @@ def handle_admin_add_product_quantity(message):
         'price': new_product['price'],
         'description': new_product['description'],
         'quantity': quantity,
-        'image': None
+        'parameters': [],
+        'characteristics': []
     }
     
-    # Kategoriya nomini olish
-    category_name = data['categories'][category_key]['name']
-    
-    # Mahsulotni kategoriyaga qo'shish
-    data['categories'][category_key]['products'].append(product_data)
+    # Mahsulotni to'g'ri joyga qo'shish
+    if '_' in category_key:
+        # Ichki kategoriyaga qo'shish
+        data['categories'][main_category]['subcategories'][subcategory]['products'].append(product_data)
+    else:
+        # Oddiy kategoriyaga qo'shish
+        data['categories'][category_key]['products'].append(product_data)
     
     # data.json ga saqlash
     save_data(data)
@@ -4673,31 +4999,567 @@ Avtomatik admin panelga o'tmoqda...
     # Muvaffaqiyat xabarini ko'rsatish
     bot.reply_to(message, success_text)
     
-    # Admin panelga avtomatik qaytish
-    admin_text = """
-🔧 **Admin Panel**
-
-Quyidagi funksiyalardan birini tanlang:
-📊 Statistika - umumiy ma'lumotlar
-📦 Mahsulotlar - mahsulotlarni boshqarish
-🏷️ Kategoriyalar - kategoriyalarni boshqarish
-📋 Buyurtmalar - buyurtmalarni ko'rish
-👥 Foydalanuvchilar - foydalanuvchilar ro'yxati
-⚙️ Sozlamalar - bot sozlamalari
-🗑️ Hammasini o'chirish - barcha ma'lumotlarni o'chirish
-    """
+    # Xarakteristika qo'shish uchun so'rash
+    markup = InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        InlineKeyboardButton("✅ Xarakteristika qo'shish", callback_data=f"add_char_{product_id}"),
+        InlineKeyboardButton("✅ Parametr qo'shish", callback_data=f"add_param_{product_id}"),
+        InlineKeyboardButton("🔙 Admin panelga qaytish", callback_data="admin_products")
+    )
     
-    # Admin panel uchun keyboard button yaratish
-    markup = create_admin_menu()
-    
-    # Admin panelni yuborish
-    bot.send_message(message.chat.id, admin_text, reply_markup=markup)
+    bot.reply_to(message, 
+        f"✅ Mahsulot qo'shildi!\n\n"
+        f"📦 {product_data['name']}\n"
+        f"💰 {product_data['price']:,} so'm\n\n"
+        f"Endi xarakteristika yoki parametr qo'shishingiz mumkin:",
+        reply_markup=markup
+    )
     
     # Foydalanuvchi holatini tozalash
     if message.from_user.id in user_states:
         del user_states[message.from_user.id]
     if message.from_user.id in contact_data and 'new_product' in contact_data[message.from_user.id]:
         del contact_data[message.from_user.id]['new_product']
+
+# Xarakteristika qo'shish callback handlerlari
+@bot.callback_query_handler(func=lambda call: call.data.startswith('add_char_'))
+def handle_add_characteristic(call):
+    """Xarakteristika qo'shish"""
+    if call.from_user.id != ADMIN_ID:
+        bot.answer_callback_query(call.id, "❌ Siz admin emassiz!")
+        return
+    
+    product_id = call.data.split('add_char_')[1]
+    
+    # Mahsulotni topish
+    product = None
+    product_location = None
+    
+    for category_key, category_data in data['categories'].items():
+        if 'subcategories' in category_data:
+            for subcategory_key, subcategory_data in category_data['subcategories'].items():
+                for i, p in enumerate(subcategory_data.get('products', [])):
+                    if p['id'] == product_id:
+                        product = p
+                        product_location = {
+                            'type': 'subcategory',
+                            'main_category': category_key,
+                            'subcategory': subcategory_key,
+                            'index': i
+                        }
+                        break
+                if product:
+                    break
+            if product:
+                break
+        else:
+            for i, p in enumerate(category_data.get('products', [])):
+                if p['id'] == product_id:
+                    product = p
+                    product_location = {
+                        'type': 'category',
+                        'category': category_key,
+                        'index': i
+                    }
+                    break
+            if product:
+                break
+    
+    if not product:
+        bot.answer_callback_query(call.id, "❌ Mahsulot topilmadi!")
+        return
+    
+    # Xarakteristika qo'shish holatini o'rnatish
+    user_states[call.from_user.id] = "admin_add_char_name"
+    if call.from_user.id not in contact_data:
+        contact_data[call.from_user.id] = {}
+    contact_data[call.from_user.id]['editing_product'] = {
+        'product': product,
+        'location': product_location
+    }
+    
+    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
+    markup.add(KeyboardButton("❌ Bekor qilish"))
+    
+    bot.edit_message_text(
+        f"📦 **{product['name']}** uchun xarakteristika qo'shish\n\n"
+        f"🔧 Xarakteristika nomini yozing (masalan: Ekran o'lchami, Protsessor, Batareya):",
+        call.message.chat.id,
+        call.message.message_id
+    )
+    
+    bot.send_message(
+        call.message.chat.id,
+        "🔧 Xarakteristika nomini yozing:",
+        reply_markup=markup
+    )
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('add_param_'))
+def handle_add_parameter(call):
+    """Parametr qo'shish"""
+    if call.from_user.id != ADMIN_ID:
+        bot.answer_callback_query(call.id, "❌ Siz admin emassiz!")
+        return
+    
+    product_id = call.data.split('add_param_')[1]
+    
+    # Mahsulotni topish (xarakteristika bilan bir xil logika)
+    product = None
+    product_location = None
+    
+    for category_key, category_data in data['categories'].items():
+        if 'subcategories' in category_data:
+            for subcategory_key, subcategory_data in category_data['subcategories'].items():
+                for i, p in enumerate(subcategory_data.get('products', [])):
+                    if p['id'] == product_id:
+                        product = p
+                        product_location = {
+                            'type': 'subcategory',
+                            'main_category': category_key,
+                            'subcategory': subcategory_key,
+                            'index': i
+                        }
+                        break
+                if product:
+                    break
+            if product:
+                break
+        else:
+            for i, p in enumerate(category_data.get('products', [])):
+                if p['id'] == product_id:
+                    product = p
+                    product_location = {
+                        'type': 'category',
+                        'category': category_key,
+                        'index': i
+                    }
+                    break
+            if product:
+                break
+    
+    if not product:
+        bot.answer_callback_query(call.id, "❌ Mahsulot topilmadi!")
+        return
+    
+    # Parametr qo'shish holatini o'rnatish
+    user_states[call.from_user.id] = "admin_add_param_name"
+    if call.from_user.id not in contact_data:
+        contact_data[call.from_user.id] = {}
+    contact_data[call.from_user.id]['editing_product'] = {
+        'product': product,
+        'location': product_location
+    }
+    
+    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
+    markup.add(KeyboardButton("❌ Bekor qilish"))
+    
+    bot.edit_message_text(
+        f"📦 **{product['name']}** uchun parametr qo'shish\n\n"
+        f"⚙️ Parametr nomini yozing (masalan: Xotira, Rang, O'lcham):",
+        call.message.chat.id,
+        call.message.message_id
+    )
+    
+    bot.send_message(
+        call.message.chat.id,
+        "⚙️ Parametr nomini yozing:",
+        reply_markup=markup
+    )
+
+# Xarakteristika qo'shish message handlerlari
+@bot.message_handler(func=lambda message: user_states.get(message.from_user.id) == "admin_add_char_name")
+def handle_admin_add_char_name(message):
+    """Xarakteristika nomini qabul qilish"""
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    if message.text == "❌ Bekor qilish":
+        if message.from_user.id in user_states:
+            del user_states[message.from_user.id]
+        if message.from_user.id in contact_data and 'editing_product' in contact_data[message.from_user.id]:
+            del contact_data[message.from_user.id]['editing_product']
+        
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🔙 Admin panelga qaytish", callback_data="admin_products"))
+        bot.reply_to(message, "❌ Xarakteristika qo'shish bekor qilindi.", reply_markup=markup)
+        return
+    
+    char_name = message.text.strip()
+    if not char_name:
+        bot.reply_to(message, "❌ Xarakteristika nomi bo'sh bo'lishi mumkin emas!")
+        return
+    
+    # Xarakteristika nomini saqlash
+    if message.from_user.id not in contact_data:
+        contact_data[message.from_user.id] = {}
+    contact_data[message.from_user.id]['new_characteristic'] = {'name': char_name}
+    
+    # Keyingi qadamga o'tish
+    user_states[message.from_user.id] = "admin_add_char_value"
+    
+    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
+    markup.add(KeyboardButton("❌ Bekor qilish"))
+    
+    bot.reply_to(message, 
+        f"🔧 Xarakteristika nomi: **{char_name}**\n\n"
+        f"Endi xarakteristika qiymatini yozing (masalan: 6.1 inch, A17 Pro, 3274 mAh):",
+        reply_markup=markup
+    )
+
+@bot.message_handler(func=lambda message: user_states.get(message.from_user.id) == "admin_add_char_value")
+def handle_admin_add_char_value(message):
+    """Xarakteristika qiymatini qabul qilish"""
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    if message.text == "❌ Bekor qilish":
+        if message.from_user.id in user_states:
+            del user_states[message.from_user.id]
+        if message.from_user.id in contact_data and 'editing_product' in contact_data[message.from_user.id]:
+            del contact_data[message.from_user.id]['editing_product']
+        if message.from_user.id in contact_data and 'new_characteristic' in contact_data[message.from_user.id]:
+            del contact_data[message.from_user.id]['new_characteristic']
+        
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🔙 Admin panelga qaytish", callback_data="admin_products"))
+        bot.reply_to(message, "❌ Xarakteristika qo'shish bekor qilindi.", reply_markup=markup)
+        return
+    
+    char_value = message.text.strip()
+    if not char_value:
+        bot.reply_to(message, "❌ Xarakteristika qiymati bo'sh bo'lishi mumkin emas!")
+        return
+    
+    # Xarakteristika qiymatini saqlash
+    char_name = contact_data[message.from_user.id]['new_characteristic']['name']
+    new_char = {'name': char_name, 'value': char_value}
+    
+    # Mahsulot ma'lumotlarini olish
+    editing_data = contact_data[message.from_user.id]['editing_product']
+    product_location = editing_data['location']
+    
+    # Xarakteristikani mahsulotga qo'shish
+    if product_location['type'] == 'subcategory':
+        data['categories'][product_location['main_category']]['subcategories'][product_location['subcategory']]['products'][product_location['index']]['characteristics'].append(new_char)
+    else:
+        data['categories'][product_location['category']]['products'][product_location['index']]['characteristics'].append(new_char)
+    
+    # data.json ga saqlash
+    save_data(data)
+    
+    # Mahsulotlarni yangilash
+    update_products()
+    
+    # Narxni o'zgartirish so'rash
+    markup = InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        InlineKeyboardButton("💰 Narxni o'zgartirish", callback_data=f"change_price_{editing_data['product']['id']}"),
+        InlineKeyboardButton("✅ Boshqa xarakteristika qo'shish", callback_data=f"add_char_{editing_data['product']['id']}"),
+        InlineKeyboardButton("🔙 Admin panelga qaytish", callback_data="admin_products")
+    )
+    
+    bot.reply_to(message,
+        f"✅ Xarakteristika qo'shildi!\n\n"
+        f"🔧 **{char_name}**: {char_value}\n\n"
+        f"Xarakteristika qo'shilgandan so'ng narxni ham o'zgartirishingiz mumkin:",
+        reply_markup=markup
+    )
+    
+    # Foydalanuvchi holatini tozalash
+    if message.from_user.id in user_states:
+        del user_states[message.from_user.id]
+    if message.from_user.id in contact_data and 'new_characteristic' in contact_data[message.from_user.id]:
+        del contact_data[message.from_user.id]['new_characteristic']
+
+# Parametr qo'shish message handlerlari
+@bot.message_handler(func=lambda message: user_states.get(message.from_user.id) == "admin_add_param_name")
+def handle_admin_add_param_name(message):
+    """Parametr nomini qabul qilish"""
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    if message.text == "❌ Bekor qilish":
+        if message.from_user.id in user_states:
+            del user_states[message.from_user.id]
+        if message.from_user.id in contact_data and 'editing_product' in contact_data[message.from_user.id]:
+            del contact_data[message.from_user.id]['editing_product']
+        
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🔙 Admin panelga qaytish", callback_data="admin_products"))
+        bot.reply_to(message, "❌ Parametr qo'shish bekor qilindi.", reply_markup=markup)
+        return
+    
+    param_name = message.text.strip()
+    if not param_name:
+        bot.reply_to(message, "❌ Parametr nomi bo'sh bo'lishi mumkin emas!")
+        return
+    
+    # Parametr nomini saqlash
+    if message.from_user.id not in contact_data:
+        contact_data[message.from_user.id] = {}
+    contact_data[message.from_user.id]['new_parameter'] = {'name': param_name}
+    
+    # Keyingi qadamga o'tish
+    user_states[message.from_user.id] = "admin_add_param_value"
+    
+    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
+    markup.add(KeyboardButton("❌ Bekor qilish"))
+    
+    bot.reply_to(message, 
+        f"⚙️ Parametr nomi: **{param_name}**\n\n"
+        f"Endi parametr qiymatini yozing (masalan: 128GB, 256GB, Qora):",
+        reply_markup=markup
+    )
+
+@bot.message_handler(func=lambda message: user_states.get(message.from_user.id) == "admin_add_param_value")
+def handle_admin_add_param_value(message):
+    """Parametr qiymatini qabul qilish"""
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    if message.text == "❌ Bekor qilish":
+        if message.from_user.id in user_states:
+            del user_states[message.from_user.id]
+        if message.from_user.id in contact_data and 'editing_product' in contact_data[message.from_user.id]:
+            del contact_data[message.from_user.id]['editing_product']
+        if message.from_user.id in contact_data and 'new_parameter' in contact_data[message.from_user.id]:
+            del contact_data[message.from_user.id]['new_parameter']
+        
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🔙 Admin panelga qaytish", callback_data="admin_products"))
+        bot.reply_to(message, "❌ Parametr qo'shish bekor qilindi.", reply_markup=markup)
+        return
+    
+    param_value = message.text.strip()
+    if not param_value:
+        bot.reply_to(message, "❌ Parametr qiymati bo'sh bo'lishi mumkin emas!")
+        return
+    
+    # Parametr qiymatini saqlash
+    param_name = contact_data[message.from_user.id]['new_parameter']['name']
+    contact_data[message.from_user.id]['new_parameter']['value'] = param_value
+    
+    # Keyingi qadamga o'tish - narxni so'rash
+    user_states[message.from_user.id] = "admin_add_param_price"
+    
+    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
+    markup.add(KeyboardButton("❌ Bekor qilish"))
+    
+    bot.reply_to(message, 
+        f"⚙️ Parametr: **{param_name}**: {param_value}\n\n"
+        f"Endi parametr narxini yozing (0 yoki raqam):",
+        reply_markup=markup
+    )
+
+@bot.message_handler(func=lambda message: user_states.get(message.from_user.id) == "admin_add_param_price")
+def handle_admin_add_param_price(message):
+    """Parametr narxini qabul qilish"""
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    if message.text == "❌ Bekor qilish":
+        if message.from_user.id in user_states:
+            del user_states[message.from_user.id]
+        if message.from_user.id in contact_data and 'editing_product' in contact_data[message.from_user.id]:
+            del contact_data[message.from_user.id]['editing_product']
+        if message.from_user.id in contact_data and 'new_parameter' in contact_data[message.from_user.id]:
+            del contact_data[message.from_user.id]['new_parameter']
+        
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🔙 Admin panelga qaytish", callback_data="admin_products"))
+        bot.reply_to(message, "❌ Parametr qo'shish bekor qilindi.", reply_markup=markup)
+        return
+    
+    try:
+        param_price = int(message.text.strip())
+        if param_price < 0:
+            bot.reply_to(message, "❌ Narx manfiy bo'lishi mumkin emas!")
+            return
+    except ValueError:
+        bot.reply_to(message, "❌ Noto'g'ri narx! Iltimos, raqam kiriting.")
+        return
+    
+    # Parametr ma'lumotlarini olish
+    param_data = contact_data[message.from_user.id]['new_parameter']
+    new_param = {
+        'name': param_data['name'], 
+        'value': param_data['value'], 
+        'price': param_price
+    }
+    
+    # Mahsulot ma'lumotlarini olish
+    editing_data = contact_data[message.from_user.id]['editing_product']
+    product_location = editing_data['location']
+    
+    # Parametrni mahsulotga qo'shish
+    if product_location['type'] == 'subcategory':
+        data['categories'][product_location['main_category']]['subcategories'][product_location['subcategory']]['products'][product_location['index']]['parameters'].append(new_param)
+    else:
+        data['categories'][product_location['category']]['products'][product_location['index']]['parameters'].append(new_param)
+    
+    # data.json ga saqlash
+    save_data(data)
+    
+    # Mahsulotlarni yangilash
+    update_products()
+    
+    # Narxni o'zgartirish so'rash
+    markup = InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        InlineKeyboardButton("💰 Narxni o'zgartirish", callback_data=f"change_price_{editing_data['product']['id']}"),
+        InlineKeyboardButton("✅ Boshqa parametr qo'shish", callback_data=f"add_param_{editing_data['product']['id']}"),
+        InlineKeyboardButton("🔙 Admin panelga qaytish", callback_data="admin_products")
+    )
+    
+    price_text = f" (+{param_price:,} so'm)" if param_price > 0 else " (bepul)"
+    
+    bot.reply_to(message,
+        f"✅ Parametr qo'shildi!\n\n"
+        f"⚙️ **{new_param['name']}**: {new_param['value']}{price_text}\n\n"
+        f"Parametr qo'shilgandan so'ng narxni ham o'zgartirishingiz mumkin:",
+        reply_markup=markup
+    )
+    
+    # Foydalanuvchi holatini tozalash
+    if message.from_user.id in user_states:
+        del user_states[message.from_user.id]
+    if message.from_user.id in contact_data and 'new_parameter' in contact_data[message.from_user.id]:
+        del contact_data[message.from_user.id]['new_parameter']
+
+# Narxni o'zgartirish callback handler
+@bot.callback_query_handler(func=lambda call: call.data.startswith('change_price_'))
+def handle_change_price(call):
+    """Narxni o'zgartirish"""
+    if call.from_user.id != ADMIN_ID:
+        bot.answer_callback_query(call.id, "❌ Siz admin emassiz!")
+        return
+    
+    product_id = call.data.split('change_price_')[1]
+    
+    # Mahsulotni topish
+    product = None
+    product_location = None
+    
+    for category_key, category_data in data['categories'].items():
+        if 'subcategories' in category_data:
+            for subcategory_key, subcategory_data in category_data['subcategories'].items():
+                for i, p in enumerate(subcategory_data.get('products', [])):
+                    if p['id'] == product_id:
+                        product = p
+                        product_location = {
+                            'type': 'subcategory',
+                            'main_category': category_key,
+                            'subcategory': subcategory_key,
+                            'index': i
+                        }
+                        break
+                if product:
+                    break
+            if product:
+                break
+        else:
+            for i, p in enumerate(category_data.get('products', [])):
+                if p['id'] == product_id:
+                    product = p
+                    product_location = {
+                        'type': 'category',
+                        'category': category_key,
+                        'index': i
+                    }
+                    break
+            if product:
+                break
+    
+    if not product:
+        bot.answer_callback_query(call.id, "❌ Mahsulot topilmadi!")
+        return
+    
+    # Narxni o'zgartirish holatini o'rnatish
+    user_states[call.from_user.id] = "admin_change_price"
+    if call.from_user.id not in contact_data:
+        contact_data[call.from_user.id] = {}
+    contact_data[call.from_user.id]['editing_product'] = {
+        'product': product,
+        'location': product_location
+    }
+    
+    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
+    markup.add(KeyboardButton("❌ Bekor qilish"))
+    
+    bot.edit_message_text(
+        f"📦 **{product['name']}**\n"
+        f"💰 Hozirgi narx: {product['price']:,} so'm\n\n"
+        f"Yangi narxni yozing (faqat raqam):",
+        call.message.chat.id,
+        call.message.message_id
+    )
+    
+    bot.send_message(
+        call.message.chat.id,
+        "💰 Yangi narxni yozing:",
+        reply_markup=markup
+    )
+
+@bot.message_handler(func=lambda message: user_states.get(message.from_user.id) == "admin_change_price")
+def handle_admin_change_price(message):
+    """Narxni o'zgartirish"""
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    if message.text == "❌ Bekor qilish":
+        if message.from_user.id in user_states:
+            del user_states[message.from_user.id]
+        if message.from_user.id in contact_data and 'editing_product' in contact_data[message.from_user.id]:
+            del contact_data[message.from_user.id]['editing_product']
+        
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🔙 Admin panelga qaytish", callback_data="admin_products"))
+        bot.reply_to(message, "❌ Narxni o'zgartirish bekor qilindi.", reply_markup=markup)
+        return
+    
+    try:
+        new_price = int(message.text.strip())
+        if new_price <= 0:
+            bot.reply_to(message, "❌ Narx 0 dan katta bo'lishi kerak!")
+            return
+    except ValueError:
+        bot.reply_to(message, "❌ Noto'g'ri narx! Iltimos, raqam kiriting.")
+        return
+    
+    # Mahsulot ma'lumotlarini olish
+    editing_data = contact_data[message.from_user.id]['editing_product']
+    product_location = editing_data['location']
+    old_price = editing_data['product']['price']
+    
+    # Narxni o'zgartirish
+    if product_location['type'] == 'subcategory':
+        data['categories'][product_location['main_category']]['subcategories'][product_location['subcategory']]['products'][product_location['index']]['price'] = new_price
+    else:
+        data['categories'][product_location['category']]['products'][product_location['index']]['price'] = new_price
+    
+    # data.json ga saqlash
+    save_data(data)
+    
+    # Mahsulotlarni yangilash
+    update_products()
+    
+    markup = InlineKeyboardMarkup()
+    markup.add(InlineKeyboardButton("🔙 Admin panelga qaytish", callback_data="admin_products"))
+    
+    bot.reply_to(message,
+        f"✅ Narx muvaffaqiyatli o'zgartirildi!\n\n"
+        f"📦 **{editing_data['product']['name']}**\n"
+        f"💰 Eski narx: {old_price:,} so'm\n"
+        f"💰 Yangi narx: {new_price:,} so'm\n"
+        f"📈 O'zgarish: {new_price - old_price:,} so'm",
+        reply_markup=markup
+    )
+    
+    # Foydalanuvchi holatini tozalash
+    if message.from_user.id in user_states:
+        del user_states[message.from_user.id]
+    if message.from_user.id in contact_data and 'editing_product' in contact_data[message.from_user.id]:
+        del contact_data[message.from_user.id]['editing_product']
 
 # Yangi callback handlerlar
 @bot.callback_query_handler(func=lambda call: call.data == "go_to_admin_panel")
@@ -4997,6 +5859,142 @@ Davom etishni xohlaysizmi?
     )
     
     bot.edit_message_text(warning_text, call.message.chat.id, call.message.message_id, reply_markup=markup)
+
+# Ichki kategoriya qo'shish jarayoni
+@bot.message_handler(func=lambda message: user_states.get(message.from_user.id) == "admin_add_subcategory_category")
+def handle_admin_add_subcategory_category(message):
+    """Ichki kategoriya uchun asosiy kategoriya tanlash"""
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    if message.text == "🔙 Orqaga":
+        if message.from_user.id in user_states:
+            del user_states[message.from_user.id]
+        
+        bot.reply_to(message, "❌ Ichki kategoriya qo'shish bekor qilindi.", reply_markup=create_admin_menu())
+        return
+    
+    # Kategoriya nomini topish
+    category_key = None
+    for key, category_data in data['categories'].items():
+        if category_data['name'] in message.text:
+            category_key = key
+            break
+    
+    if not category_key:
+        bot.reply_to(message, "❌ Kategoriya topilmadi! Iltimos, qayta tanlang.")
+        return
+    
+    # Kategoriya ma'lumotlarini saqlash
+    if message.from_user.id not in contact_data:
+        contact_data[message.from_user.id] = {}
+    contact_data[message.from_user.id]['parent_category'] = category_key
+    
+    # Ichki kategoriya nomini so'rash
+    user_states[message.from_user.id] = "admin_add_subcategory_name"
+    
+    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
+    markup.add(KeyboardButton("❌ Bekor qilish"))
+    
+    bot.reply_to(message, 
+                 f"📁 Yangi ichki kategoriya qo'shish\n\n"
+                 f"📂 Asosiy kategoriya: {data['categories'][category_key]['name']}\n\n"
+                 f"Ichki kategoriya nomini yozing (masalan: Telefonlar):",
+                 reply_markup=markup)
+
+@bot.message_handler(func=lambda message: user_states.get(message.from_user.id) == "admin_add_subcategory_name")
+def handle_admin_add_subcategory_name(message):
+    """Ichki kategoriya nomini qabul qilish"""
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    if message.text == "❌ Bekor qilish":
+        if message.from_user.id in user_states:
+            del user_states[message.from_user.id]
+        if message.from_user.id in contact_data and 'parent_category' in contact_data[message.from_user.id]:
+            del contact_data[message.from_user.id]['parent_category']
+        
+        bot.reply_to(message, "❌ Ichki kategoriya qo'shish bekor qilindi.", reply_markup=create_admin_menu())
+        return
+    
+    subcategory_name = message.text.strip()
+    
+    # Ichki kategoriya emoji so'rash
+    user_states[message.from_user.id] = "admin_add_subcategory_emoji"
+    contact_data[message.from_user.id]['new_subcategory'] = {'name': subcategory_name}
+    
+    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=3)
+    markup.add(
+        KeyboardButton("📱"), KeyboardButton("💻"), KeyboardButton("👕"),
+        KeyboardButton("❄️"), KeyboardButton("🖥️"), KeyboardButton("⌨️"),
+        KeyboardButton("🧺"), KeyboardButton("📦"), KeyboardButton("🔧")
+    )
+    markup.add(KeyboardButton("❌ Bekor qilish"))
+    
+    bot.reply_to(message, 
+                 f"✅ Ichki kategoriya nomi: {subcategory_name}\n\n"
+                 f"Ichki kategoriya emoji tanlang yoki yozing:",
+                 reply_markup=markup)
+
+@bot.message_handler(func=lambda message: user_states.get(message.from_user.id) == "admin_add_subcategory_emoji")
+def handle_admin_add_subcategory_emoji(message):
+    """Ichki kategoriya emoji qabul qilish"""
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    if message.text == "❌ Bekor qilish":
+        if message.from_user.id in user_states:
+            del user_states[message.from_user.id]
+        if message.from_user.id in contact_data and 'new_subcategory' in contact_data[message.from_user.id]:
+            del contact_data[message.from_user.id]['new_subcategory']
+        if message.from_user.id in contact_data and 'parent_category' in contact_data[message.from_user.id]:
+            del contact_data[message.from_user.id]['parent_category']
+        
+        bot.reply_to(message, "❌ Ichki kategoriya qo'shish bekor qilindi.", reply_markup=create_admin_menu())
+        return
+    
+    emoji = message.text.strip()
+    subcategory_name = contact_data[message.from_user.id]['new_subcategory']['name']
+    parent_category = contact_data[message.from_user.id]['parent_category']
+    
+    # Ichki kategoriya kalitini yaratish
+    subcategory_key = subcategory_name.lower().replace(' ', '_').replace('-', '_')
+    
+    # Ichki kategoriyani qo'shish
+    if 'subcategories' not in data['categories'][parent_category]:
+        data['categories'][parent_category]['subcategories'] = {}
+    
+    data['categories'][parent_category]['subcategories'][subcategory_key] = {
+        'name': subcategory_name,
+        'emoji': emoji,
+        'products': []
+    }
+    
+    # data.json ga saqlash
+    save_data(data)
+    
+    # Mahsulotlarni yangilash
+    update_products()
+    
+    # Muvaffaqiyat xabari
+    success_text = f"""
+✅ Ichki kategoriya muvaffaqiyatli qo'shildi!
+
+📁 Nomi: {subcategory_name}
+😀 Emoji: {emoji}
+🔑 Kalit: {subcategory_key}
+📂 Asosiy kategoriya: {data['categories'][parent_category]['name']}
+    """
+    
+    bot.reply_to(message, success_text, reply_markup=create_admin_menu())
+    
+    # Foydalanuvchi holatini tozalash
+    if message.from_user.id in user_states:
+        del user_states[message.from_user.id]
+    if message.from_user.id in contact_data and 'new_subcategory' in contact_data[message.from_user.id]:
+        del contact_data[message.from_user.id]['new_subcategory']
+    if message.from_user.id in contact_data and 'parent_category' in contact_data[message.from_user.id]:
+        del contact_data[message.from_user.id]['parent_category']
 
 # Botni ishga tushirish
 if __name__ == "__main__":

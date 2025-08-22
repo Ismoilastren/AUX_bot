@@ -1,7 +1,168 @@
 {
-  "categories": {},
+  "categories": {
+    "elektronika": {
+      "name": "Elektronika",
+      "emoji": "📱",
+      "products": [
+        {
+          "id": "telefonlar_1",
+          "name": "iPhone 15 Pro",
+          "price": 15000000,
+          "description": "Apple iPhone 15 Pro, eng yangi model",
+          "quantity": 10,
+          "parameters": [
+            {
+              "name": "Xotira",
+              "value": "128GB",
+              "price": 0
+            },
+            {
+              "name": "Xotira",
+              "value": "256GB",
+              "price": 2000000
+            },
+            {
+              "name": "Xotira",
+              "value": "512GB",
+              "price": 4000000
+            }
+          ],
+          "characteristics": [
+            {
+              "name": "Ekran o'lchami",
+              "value": "6.1 inch"
+            },
+            {
+              "name": "Protsessor",
+              "value": "A17 Pro"
+            },
+            {
+              "name": "Kamera",
+              "value": "48MP + 12MP + 12MP"
+            },
+            {
+              "name": "Batareya",
+              "value": "3274 mAh"
+            }
+          ]
+        },
+        {
+          "id": "telefonlar_2",
+          "name": "Samsung Galaxy S24",
+          "price": 12000000,
+          "description": "Samsung Galaxy S24, eng yangi Android telefon",
+          "quantity": 15,
+          "parameters": [
+            {
+              "name": "Xotira",
+              "value": "256GB",
+              "price": 1500000
+            },
+            {
+              "name": "Xotira",
+              "value": "512GB",
+              "price": 3000000
+            }
+          ],
+          "characteristics": [
+            {
+              "name": "Ekran o'lchami",
+              "value": "6.2 inch"
+            },
+            {
+              "name": "Protsessor",
+              "value": "Exynos 2400"
+            },
+            {
+              "name": "Kamera",
+              "value": "50MP + 12MP + 10MP"
+            },
+            {
+              "name": "Batareya",
+              "value": "4000 mAh"
+            }
+          ]
+        },
+        {
+          "id": "noutbuklar_1",
+          "name": "MacBook Air M2",
+          "price": 18000000,
+          "description": "Apple MacBook Air M2, yuqori sifatli",
+          "quantity": 8,
+          "parameters": [
+            {
+              "name": "Xotira",
+              "value": "256GB",
+              "price": 2000000
+            },
+            {
+              "name": "Xotira",
+              "value": "512GB",
+              "price": 4000000
+            },
+            {
+              "name": "Xotira",
+              "value": "1TB",
+              "price": 6000000
+            }
+          ],
+          "characteristics": [
+            {
+              "name": "Ekran o'lchami",
+              "value": "13.6 inch"
+            },
+            {
+              "name": "Protsessor",
+              "value": "M2 chip"
+            },
+            {
+              "name": "RAM",
+              "value": "8GB"
+            },
+            {
+              "name": "Batareya",
+              "value": "18 soat"
+            }
+          ]
+        },
+        {
+          "id": "elektronika_4",
+          "name": "112112",
+          "price": 1221131231,
+          "description": "123123",
+          "quantity": 123,
+          "parameters": [
+            {
+              "name": "xotira 32",
+              "value": "1213114gb",
+              "price": 0
+            }
+          ],
+          "characteristics": []
+        },
+        {
+          "id": "elektronika_5",
+          "name": "asas",
+          "price": 122113,
+          "description": "nsdjb v",
+          "quantity": 12,
+          "parameters": [],
+          "characteristics": []
+        }
+      ]
+    }
+  },
   "orders": [],
-  "users": [],
+  "users": [
+    {
+      "id": 5833966360,
+      "username": "life_ruthlessly",
+      "first_name": "Исмоил",
+      "last_name": null,
+      "joined_date": "2025-08-22 17:10:00",
+      "last_activity": "2025-08-22 17:34:47"
+    }
+  ],
   "settings": {
     "admin_id": 5833966360,
     "bot_token": "7123336998:AAE_4fH9cYCppxzfVbCVj3FHs5vxx1kzoqo",
